@@ -22,28 +22,26 @@ paypalrestsdk.configure({
 })
 
 # Get base URL from environment variable, default to localhost for development
-BASE_URL = os.getenv("BASE_URL","http://localhost:8000")
+BASE_URL = os.getenv("BASE_URL")
 
 
 @app.post("/create-order")
 async def create_order(request: Request):
     try:
         body = await request.json()
-        cart = [{
-                "product_id": 1,  # Example product ID
-                "name": 'Sample Product',
-                "price": 0.01,
-                "currency": 'CAD'
-            }]#body.get('cart', [])
-
-        if not cart:
-            raise HTTPException(status_code=400, detail="Cart is empty.")
-
-        # Summarize cart total amount
-        total_amount = sum(item['price'] for item in cart)
+        total_price = body.get('total_price')
+        currency = body.get('currency', 'USD')
         
-        # Ensure total_amount is not zero or negative
-        if total_amount <= 0:
+        # Ensure total_price is provided and valid
+        if total_price is None:
+            raise HTTPException(status_code=400, detail="Total price is required.")
+        try:
+            total_price = float(total_price)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Total price must be a valid number.")
+        
+        # Ensure total_price is not zero or negative
+        if total_price <= 0:
             raise HTTPException(status_code=400, detail="Invalid total amount.")
 
         payment = paypalrestsdk.Payment({
@@ -53,13 +51,11 @@ async def create_order(request: Request):
             },
             "transactions": [{
                 "amount": {
-                    "total": 100.00,#f"{total_amount:.2f}",
-                    "currency": "USD"  # Change currency to EUR
+                    "total": f"{total_price:.2f}",  # Use provided total price
+                    "currency": currency  # Use provided currency
                 },
                 "description": "This is the payment transaction description."
-            }]
-
-        ,
+            }],
             "redirect_urls": {
                 "return_url": f"{BASE_URL}/execute-payment",
                 "cancel_url": f"{BASE_URL}/"
@@ -70,7 +66,7 @@ async def create_order(request: Request):
                 # "user_action":"PAY_NOW"
             }
         })
-
+        
         if payment.create():
             for link in payment.links:
                 if link.rel == "approval_url":
